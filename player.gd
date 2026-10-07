@@ -100,8 +100,8 @@ func shoot() -> void:
 	flash.visible = true
 	get_tree().create_timer(0.04).timeout.connect(func(): flash.visible = false)
 
-	var spread := 0.01 + hud.move.length() * 0.03
-	var b := cam.global_transform.basis
+	var spread: float = 0.01 + hud.move.length() * 0.03
+    var b := cam.global_transform.basis
 	var dir := -b.z + b.x * randf_range(-spread, spread) + b.y * randf_range(-spread, spread)
 	var from := cam.global_position
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir.normalized() * 100.0)
