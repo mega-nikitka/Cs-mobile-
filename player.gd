@@ -18,6 +18,10 @@ var head: Node3D
 var cam: Camera3D
 var gun: Node3D
 var flash: MeshInstance3D
+var shot_players: Array = []
+var shot_idx := 0
+var click_player: AudioStreamPlayer
+var hit_player: AudioStreamPlayer
 
 func _mat(c: Color, unshaded := false) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -25,6 +29,25 @@ func _mat(c: Color, unshaded := false) -> StandardMaterial3D:
 	if unshaded:
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	return m
+
+func make_sound(duration: float, freq: float, noise: float, decay: float) -> AudioStreamWAV:
+	var rate := 22050
+	var n := int(rate * duration)
+	var data := PackedByteArray()
+	data.resize(n * 2)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / rate
+		var env := exp(-t * decay)
+		var f := freq * (1.0 - t / duration * 0.7)
+		phase += TAU * f / rate
+		var s := (randf_range(-1.0, 1.0) * noise + sin(phase) * (1.0 - noise)) * env
+		data.encode_s16(i * 2, int(clamp(s, -1.0, 1.0) * 30000.0))
+	var w := AudioStreamWAV.new()
+	w.format = AudioStreamWAV.FORMAT_16_BITS
+	w.mix_rate = rate
+	w.data = data
+	return w
 
 func _ready() -> void:
 	var col := CollisionShape3D.new()
@@ -61,6 +84,22 @@ func _ready() -> void:
 	flash.position = Vector3(0, 0, -0.32)
 	flash.visible = false
 	gun.add_child(flash)
+
+	# звуки
+	var shot_stream := make_sound(0.18, 130.0, 0.75, 22.0)
+	for i in 3:
+		var p := AudioStreamPlayer.new()
+		p.stream = shot_stream
+		p.volume_db = -4.0
+		add_child(p)
+		shot_players.append(p)
+	click_player = AudioStreamPlayer.new()
+	click_player.stream = make_sound(0.06, 1200.0, 0.3, 50.0)
+	add_child(click_player)
+	hit_player = AudioStreamPlayer.new()
+	hit_player.stream = make_sound(0.08, 1800.0, 0.1, 40.0)
+	hit_player.volume_db = -6.0
+	add_child(hit_player)
 
 func _physics_process(delta: float) -> void:
 	var look: Vector2 = hud.look_delta
@@ -100,8 +139,13 @@ func shoot() -> void:
 	flash.visible = true
 	get_tree().create_timer(0.04).timeout.connect(func(): flash.visible = false)
 
+	var sp: AudioStreamPlayer = shot_players[shot_idx]
+	shot_idx = (shot_idx + 1) % shot_players.size()
+	sp.pitch_scale = randf_range(0.92, 1.08)
+	sp.play()
+
 	var spread: float = 0.01 + hud.move.length() * 0.03
-    var b := cam.global_transform.basis
+	var b := cam.global_transform.basis
 	var dir := -b.z + b.x * randf_range(-spread, spread) + b.y * randf_range(-spread, spread)
 	var from := cam.global_position
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir.normalized() * 100.0)
@@ -111,6 +155,7 @@ func shoot() -> void:
 		var c = r.collider
 		if c.has_method("take_damage"):
 			c.take_damage(25, r.position)
+			hit_player.play()
 		else:
 			spawn_hole(r.position, r.normal)
 
@@ -129,7 +174,11 @@ func reload() -> void:
 	if reloading or mag == MAG_SIZE or reserve <= 0:
 		return
 	reloading = true
+	click_player.pitch_scale = 0.8
+	click_player.play()
 	await get_tree().create_timer(1.8).timeout
+	click_player.pitch_scale = 1.2
+	click_player.play()
 	var take: int = min(MAG_SIZE - mag, reserve)
 	mag += take
 	reserve -= take
